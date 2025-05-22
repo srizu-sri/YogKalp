@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget, QGraphicsDropShadowEffect
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QObject, pyqtProperty # Add pyqtProperty
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QPalette, QPixmap
 
 class MetricCard(QFrame):
@@ -102,13 +102,12 @@ class ToggleSwitch(QWidget):
         
         # Initialize state
         self.is_checked = False
+        self._handle_position = 0  # 0 = off, 1 = on
         
         # Animation properties
         self.animation = QPropertyAnimation(self, b"handle_position")
         self.animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self.animation.setDuration(200)  # 200ms
-        
-        self._handle_position = 0  # 0 = off, 1 = on
         
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -149,11 +148,12 @@ class ToggleSwitch(QWidget):
             
     def isChecked(self):
         return self.is_checked
-    @property
+
+    @pyqtProperty(float) # Declare as a pyqtProperty of type float
     def handle_position(self):
         return self._handle_position
         
     @handle_position.setter
     def handle_position(self, pos):
         self._handle_position = pos
-        self.update()
+        self.update() # Trigger a repaint when the position changes
