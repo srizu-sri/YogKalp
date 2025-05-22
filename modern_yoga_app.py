@@ -3,11 +3,11 @@ import sys
 import time
 import threading
 import pyttsx3
-import warnings
+import warnings 
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import QTimer, QTime, Qt, QSize
+from PyQt6.QtCore import QTimer, QTime, Qt, QSize, QObject
 from PyQt6.QtGui import QPixmap, QFont, QColor
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QScrollArea, QGridLayout, QSizePolicy, QFrame, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton, QInputDialog, QVBoxLayout, QHBoxLayout, QScrollArea, QGridLayout, QSizePolicy, QFrame, QMessageBox
 from pose_estimator import PoseEstimator
 from calorie_calculator import CalorieCalculator
 from camera_thread import CameraThread
