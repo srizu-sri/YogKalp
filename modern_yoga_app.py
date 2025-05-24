@@ -3,11 +3,14 @@ import sys
 import time
 import threading
 import pyttsx3
+import json
+import webbrowser
 import warnings 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import QTimer, QTime, Qt, QSize, QObject
 from PyQt6.QtGui import QPixmap, QFont, QColor
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton, QInputDialog, QVBoxLayout, QHBoxLayout, QScrollArea, QGridLayout, QSizePolicy, QFrame, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTextEdit, QWidget, QLabel, QLineEdit, QPushButton, QDialog, QCheckBox, QInputDialog, QVBoxLayout, QHBoxLayout, QScrollArea, QGridLayout, QSizePolicy, QFrame, QMessageBox
+import google.generativeai as genai
 from pose_estimator import PoseEstimator
 from calorie_calculator import CalorieCalculator
 from camera_thread import CameraThread
@@ -18,6 +21,7 @@ from ui.food_recommendations import IndianFoodRecommendations
 from ui.profile_dialog import UserProfileDialog
 from yoga_assistant_1 import YogaAssistant
 from server import esp_data
+from health_details import HealthDetailsDialog
 
 class ModernYogaApp(QMainWindow):
     def __init__(self):
@@ -70,15 +74,17 @@ class ModernYogaApp(QMainWindow):
         self.current_batch_complete = False  # Track if current batch is complete
         
         # Initialize user profile data
-        self.calculate_bmi = {}        
+        self.calculate_bmi = {}
+        
         # Initialize heart rate alert flag
         self.heart_rate_alert_shown = False
         
         # Setup UI only once
         self.setup_ui()
         
-        # Load user profile after UI setup
+        # Load user profile and health conditions after UI setup
         self.load_calculate_bmi()
+        self.load_health_conditions()
      
         self.poses_trained_value.setText(str(len(self.estimator.named_poses)))    
         
@@ -88,7 +94,7 @@ class ModernYogaApp(QMainWindow):
         # Welcome message with name if available
         welcome_msg = "Welcome to YogKalp. Your personal yoga and health assistant."
         if "name" in self.calculate_bmi and self.calculate_bmi["name"]:
-            welcome_msg = f"Welcome {self.calculate_bmi['nam']} to YogKalp. Your personal yoga and health assistant."
+            welcome_msg = f"Welcome {self.calculate_bmi['name']} to YogKalp. Your personal yoga and health assistant."
         self.voice_assistant.speak(welcome_msg)
             
         # Update Timer
@@ -136,14 +142,24 @@ class ModernYogaApp(QMainWindow):
         
         header_layout.addStretch()
         
-        # Yoga Assistant Button
+        # Health Details Button
+        self.health_details_btn = QPushButton("Health Details")
+        self.health_details_btn.setFixedSize(QSize(150, 40))
+        self.health_details_btn.clicked.connect(self.show_health_details)
+        header_layout.addWidget(self.health_details_btn)
+        self.health_details_btn.setStyleSheet("""
+            QPushButton {
+                border-radius: 20px}""")
+        
+        # Yoga Assistant Button 
         self.yoga_assistant_btn = QPushButton("Yoga Assistant")
         self.yoga_assistant_btn.setFixedSize(QSize(150, 40))
         self.yoga_assistant_btn.clicked.connect(self.open_yoga_assistant)
         header_layout.addWidget(self.yoga_assistant_btn)
         self.yoga_assistant_btn.setStyleSheet("""
             QPushButton {
-                border-radius: 20px}""")
+                border-radius: 20px}""")        
+        
         # Profile section
         profile_btn = QPushButton("Profile")
         profile_btn.setFixedSize(QSize(100, 40))
@@ -191,6 +207,11 @@ class ModernYogaApp(QMainWindow):
         self.food_rec_btn = QPushButton("View Food Recommendations")
         self.food_rec_btn.clicked.connect(self.show_food_recommendations)
         input_layout.addWidget(self.food_rec_btn)
+        food_rec_btn = QFrame()
+        food_rec_btn.setObjectName("food_btn")
+        self.food_rec_btn.setStyleSheet("""
+            QPushButton {
+                border-radius: 20px}""")
         
         input_fields.addWidget(self.weight_input)
         input_fields.addWidget(self.height_input)
@@ -234,11 +255,10 @@ class ModernYogaApp(QMainWindow):
         self.spo2_card = MetricCard("SpO2 Level", "0", "%", color="#9C27B0")
         metrics_grid.addWidget(self.spo2_card, 1, 0)
         
-        # Cardio/Strength Training Card (renamed)
+        # Cardio
         self.strength_card = MetricCard("Cardio/Strength Training", "0", "reps", color="#FF9800")
         metrics_grid.addWidget(self.strength_card, 1, 1)
         
-        # Add this line to create the steps_value attribute
         self.steps_value = self.strength_card
         
         # Temperature Card
@@ -343,6 +363,17 @@ class ModernYogaApp(QMainWindow):
         palm_toggle_layout.addWidget(self.palm_toggle)
         
         accuracy_header.addLayout(palm_toggle_layout)
+
+        # ESP32-CAM controls
+        esp32_cam_layout = QHBoxLayout()
+        esp32_cam_label = QLabel("Use YogKalp Cam")
+        esp32_cam_label.setFont(QFont("Google Sans", 10))
+        esp32_cam_layout.addWidget(esp32_cam_label)
+
+        self.esp32_cam_toggle = ToggleSwitch()
+        self.esp32_cam_toggle.setChecked(False)
+        esp32_cam_layout.addWidget(self.esp32_cam_toggle)
+        accuracy_header.addLayout(esp32_cam_layout) # Add to accuracy_header
         
         accuracy_layout.addLayout(accuracy_header)
         
@@ -351,12 +382,19 @@ class ModernYogaApp(QMainWindow):
         self.pose_accuracy_value.setFont(QFont("Google Sans", 22, QFont.Weight.Medium))
         accuracy_layout.addWidget(self.pose_accuracy_value)
         
-        # Add explanation text
+        # explanation text
         self.accuracy_info = QLabel("Capture at least 5 training images to see pose accuracy")
         self.accuracy_info.setFont(QFont("Google Sans", 10))
         self.accuracy_info.setStyleSheet("color: #5F6368;")
         self.accuracy_info.setWordWrap(True)
         accuracy_layout.addWidget(self.accuracy_info)
+
+        # Start Camera button
+        self.start_btn = QPushButton("Start Camera")
+        self.start_btn.clicked.connect(self.toggle_camera)
+        self.start_btn.setFixedHeight(50)
+        self.start_btn.setFont(QFont("Google Sans", 14))
+        accuracy_layout.addWidget(self.start_btn) # Add to accuracy_layout
         
         metrics_grid.addWidget(self.accuracy_card, 3, 0, 1, 2)
         
@@ -388,10 +426,9 @@ class ModernYogaApp(QMainWindow):
         training_title.setStyleSheet("color: #00897B;")
         training_layout.addWidget(training_title)
         
-        # Modify the training card to include poses trained count
         training_info = QHBoxLayout()
         
-         # Add voice assistant toggle to header
+        # voice assistant toggle to header
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -401,7 +438,7 @@ class ModernYogaApp(QMainWindow):
         
         header_layout.addStretch()
         
-        # Add voice assistant toggle
+        # voice assistant toggle
         voice_toggle_layout = QHBoxLayout()
         voice_toggle_label = QLabel("Voice Assistant:")
         voice_toggle_label.setFont(QFont("Google Sans", 10))
@@ -466,34 +503,6 @@ class ModernYogaApp(QMainWindow):
         training_layout.addWidget(self.training_instructions)
         
         metrics_layout.addWidget(training_card)
-     
-               # Camera section
-        camera_section = QVBoxLayout()
-        camera_title = QLabel("Pose Analysis")
-        camera_title.setFont(QFont("Google Sans", 18, QFont.Weight.Medium))
-        camera_section.addWidget(camera_title)
-        
-        # Add ESP32-CAM controls - modified to place toggle next to text
-        esp32_cam_layout = QHBoxLayout()
-        esp32_cam_label = QLabel("Use YogKalp Cam")
-        esp32_cam_label.setFont(QFont("Google Sans", 10))
-        esp32_cam_layout.addWidget(esp32_cam_label)
-
-        self.esp32_cam_toggle = ToggleSwitch()
-        self.esp32_cam_toggle.setChecked(False)
-        esp32_cam_layout.addWidget(self.esp32_cam_toggle)
-        
-        # Add spacer to push toggle and label to the left
-        esp32_cam_layout.addStretch()
-        
-        camera_section.addLayout(esp32_cam_layout)
-        
-        self.start_btn = QPushButton("Start Camera")
-        self.start_btn.clicked.connect(self.toggle_camera)
-        self.start_btn.setFixedHeight(50)
-        self.start_btn.setFont(QFont("Google Sans", 14))
-        camera_section.addWidget(self.start_btn)
-        metrics_layout.addLayout(camera_section)
         
         # Add everything to scroll area
         scroll_area.setWidget(scroll_content)
@@ -553,7 +562,6 @@ class ModernYogaApp(QMainWindow):
         except Exception as e:
             print(f"Error updating data: {e}")
         
-        # FIXED: BMI calculation moved outside the exception handler and properly indented
         # Calculate BMI if weight and height are provided
         try:
             bmi = 0
@@ -902,26 +910,283 @@ class ModernYogaApp(QMainWindow):
         if enabled:
             self.voice_assistant.speak("Voice assistant enabled")
             
+    def get_benefits(self):
+        """Return food benefits based on health conditions"""
+        benefits = {
+            "General": [
+                "Whole grains provide sustained energy for yoga practice",
+                "Leafy greens help reduce inflammation and improve flexibility",
+                "Nuts and seeds offer protein and healthy fats for muscle recovery",
+                "Berries contain antioxidants that help with post-workout recovery",
+                "Hydration with water and herbal teas improves overall performance"
+            ],
+            "Diabetes": [
+                "Cinnamon may help regulate blood sugar levels",
+                "Leafy greens are low in carbs and high in nutrients",
+                "Beans and legumes provide protein without raising blood sugar significantly",
+                "Berries have a lower glycemic index than other fruits",
+                "Nuts provide healthy fats without impacting blood sugar"
+            ],
+            "High Blood Pressure": [
+                "Bananas are high in potassium which helps lower blood pressure",
+                "Beets contain nitrates that can help reduce blood pressure",
+                "Dark chocolate (70%+ cocoa) may help lower blood pressure",
+                "Garlic has compounds that help reduce hypertension",
+                "Leafy greens are high in potassium and magnesium"
+            ],
+            "Heart Disease": [
+                "Fatty fish like salmon provide omega-3 fatty acids for heart health",
+                "Oats contain beta-glucan fiber that helps lower cholesterol",
+                "Berries are rich in antioxidants that benefit heart health",
+                "Nuts contain heart-healthy monounsaturated fats",
+                "Olive oil helps reduce inflammation and improve cholesterol"
+            ],
+            "Joint Pain/Arthritis": [
+                "Turmeric contains curcumin which has anti-inflammatory properties",
+                "Fatty fish provides omega-3s that reduce joint inflammation",
+                "Cherries contain antioxidants that may reduce pain and inflammation",
+                "Ginger has anti-inflammatory compounds that may reduce joint pain",
+                "Walnuts are high in omega-3 fatty acids that help reduce inflammation"
+            ]
+        }
+        
+        # Get user's health conditions if available
+        relevant_benefits = ["General Benefits:"]
+        for item in benefits["General"]:
+            relevant_benefits.append("• " + item)
+        
+        # Add condition-specific benefits if user has those conditions
+        if hasattr(self, 'health_conditions'):
+            for condition, has_condition in self.health_conditions.items():
+                if has_condition and condition in benefits:
+                    relevant_benefits.append(f"\n{condition} Benefits:")
+                    for item in benefits[condition]:
+                        relevant_benefits.append("• " + item)
+        
+        return "\n".join(relevant_benefits)
+
     def show_food_recommendations(self):
-        """Display food recommendations based on user's BMI"""
         try:
-            if self.weight_input.text() and self.height_input.text():
-                weight = float(self.weight_input.text())
-                height = float(self.height_input.text()) / 100
-                bmi = weight / (height * height)
+            # Initialize Gemini API
+            try:
+                # Attempt to get the API key from an environment variable
+                api_key = os.getenv("GEMINI_API_KEY")
+                print(f"Attempt 1: API key from os.getenv(\"GEMINI_API_KEY\"): {api_key}") # DEBUG PRINT
+
+                if not api_key:
+                    # Fallback to a hardcoded key if the environment variable is not set
+                    api_key = "AIzaSyCF8eLRxip4jSRKKzdJxGABFLV_l3OwyZ4" # Or your actual key
+                    print(f"Attempt 2: API key after fallback: {api_key}") # DEBUG PRINT
+                    if api_key == "AIzaSyCF8eLRxip4jSRKKzdJxGABFLV_l3OwyZ4": # Check if it's still the placeholder or your actual key
+                         QMessageBox.warning(self, "API Key Missing", "GEMINI_API_KEY not found in environment variables and no fallback key is set. Please set the environment variable or update the hardcoded key.")
+                         return
                 
-                # Announce the personalized message using text-to-speech
-                self.voice_assistant.speak("Your Personalized food plan as per your BMI")
-                
-                # Create and show the recommendations window
-                self.food_window = IndianFoodRecommendations(bmi)
-                self.food_window.show()
+                print(f"Final API key being used for genai.configure: {api_key}") # DEBUG PRINT
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel('gemini-2.0-flash') 
+                self.gemini_initialized = True
+            except Exception as e:
+                print(f"Exception during Gemini API initialization: {e}") # DEBUG PRINT
+                QMessageBox.critical(self, "Gemini API Error", f"Failed to initialize Gemini API: {e}")
+                self.gemini_initialized = False
+                return
+
+            #  food dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Personalized Food Recommendations")
+            dialog.setMinimumWidth(600)
+            dialog.setMinimumHeight(500)
+            dialog.setStyleSheet("""
+                QDialog { background-color: #f0f0f0; }
+                QLabel { font-size: 14px; color: #333; }
+                QPushButton {
+                    background-color: #1a73e8;
+                    color: white;
+                    border: none;
+                    border-radius: 12px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                }
+                QPushButton:hover { background-color: #1765cc; }
+                QFrame { background-color: white; border-radius: 8px; margin-bottom: 10px; }
+            """)
+
+            # Add minimize and maximize controls
+            dialog.setWindowFlags(dialog.windowFlags() |
+                                  Qt.WindowType.WindowMinimizeButtonHint |
+                                  Qt.WindowType.WindowMaximizeButtonHint)
+
+            layout = QVBoxLayout(dialog)
+            layout.setContentsMargins(20, 20, 20, 20)
+            layout.setSpacing(15)
+
+            title_label = QLabel("Personalized Indian Dish Recommendations")
+            title_label.setFont(QFont("Google Sans", 18, QFont.Weight.Bold))
+            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(title_label)
+
+            # Check if BMI and health conditions are available
+            bmi = self.calculate_bmi.get("bmi", None)
+            health_conditions_list = [cond for cond, checked in self.health_conditions.items() if checked]
+
+            if bmi and health_conditions_list:
+                # Gemini API call
+                # model = genai.GenerativeModel('gemini-2.0-flash') # Model is now initialized as self.model
+                if not self.gemini_initialized:
+                    QMessageBox.critical(self, "API Error", "Gemini API not initialized. Cannot fetch recommendations.")
+                    return
+                model = self.model
+                prompt = (
+                    f"Based on a BMI of {bmi:.2f} and health conditions: {', '.join(health_conditions_list)}, "
+                    f"recommend 2 Indian dishes for breakfast and 2 Indian dishes for dinner. "
+                    f"For each dish, provide its name, a webpage link for its recipe (preferring popular articles), "
+                    f"and a brief explanation of its health benefits relevant to the given BMI and health conditions. "
+                    f"Format each dish as: 'Dish Name: [Name] | Web Link: [Link] | Benefits: [Benefits]'. "
+                    f"Separate each dish recommendation with a newline."
+                    # f"Ensure the YouTube links are in the format 'https://www.youtube.com/watch?v=VIDEO_ID'."
+                    f"Start by finding the dishes in webpages of 'Nisha Madhulika, Sanjeev Kapoor Khazana, Ranveer Brar, Manjula's Kitchen, Kabita's Kitchen, and Hebbars Kitchen'"
+                    f"If dishes not found in the mentioned pages, search for the dishes in youtube channel by 'Indian Food Recipes'"
+                )
+
+                try:
+                    response = model.generate_content(prompt)
+                    recommendations_text = response.text
+                except Exception as api_error:
+                    QMessageBox.warning(self, "API Error", f"Could not fetch recommendations from Gemini API: {api_error}")
+                    # Fallback or default message
+                    recommendations_text = "Could not fetch personalized recommendations at this time. Please try again later."
+                    error_label = QLabel(recommendations_text)
+                    error_label.setWordWrap(True)
+                    layout.addWidget(error_label)
+                    dialog.exec()
+                    return
+
+                scroll_area = QScrollArea()
+                scroll_area.setWidgetResizable(True)
+                scroll_area.setStyleSheet("QScrollArea { border: none; }")
+                scroll_content = QWidget()
+                scroll_layout = QVBoxLayout(scroll_content)
+                scroll_layout.setSpacing(10)
+
+                dishes_data = []
+                for line in recommendations_text.split('\n'):
+                    if line.strip():
+                        parts = {}
+                        current_key = None
+                        for item in line.split('|'):
+                            if ':' in item:
+                                key, value = item.split(':', 1)
+                                current_key = key.strip()
+                                parts[current_key] = value.strip()
+                            elif current_key:
+                                parts[current_key] += ' | ' + item.strip() # Handle cases where benefits might have '|'
+                        if 'Dish Name' in parts and 'YouTube Link' in parts and 'Benefits' in parts:
+                            dishes_data.append(parts)
+
+                if not dishes_data:
+                    no_data_label = QLabel("No recommendations could be parsed from the API response. Please try again.")
+                    no_data_label.setWordWrap(True)
+                    layout.addWidget(no_data_label)
+                else:
+                    meal_sections = {"Breakfast": [], "Dinner": []}
+                    temp_breakfast = []
+                    temp_dinner = []
+
+                    for dish_info in dishes_data:
+                        dish_name_lower = dish_info.get('Dish Name', '').lower()
+                        if any(keyword in dish_name_lower for keyword in ['poha', 'upma', 'idli', 'dosa', 'paratha', 'oats', 'smoothie']) and len(temp_breakfast) < 2:
+                            temp_breakfast.append(dish_info)
+                        elif len(temp_dinner) < 2:
+                            temp_dinner.append(dish_info)
+
+                    idx = 0
+                    while len(temp_breakfast) < 2 and idx < len(dishes_data):
+                        if dishes_data[idx] not in temp_breakfast and dishes_data[idx] not in temp_dinner:
+                            temp_breakfast.append(dishes_data[idx])
+                        idx += 1
+                    idx = 0
+                    while len(temp_dinner) < 2 and idx < len(dishes_data):
+                        if dishes_data[idx] not in temp_breakfast and dishes_data[idx] not in temp_dinner:
+                            temp_dinner.append(dishes_data[idx])
+                        idx += 1
+
+                    meal_sections["Breakfast"] = temp_breakfast[:2]
+                    meal_sections["Dinner"] = temp_dinner[:2]
+
+                    for meal_type, dishes in meal_sections.items():
+                        if not dishes: continue
+
+                        meal_label = QLabel(f"{meal_type} Recommendations")
+                        meal_label.setFont(QFont("Google Sans", 16, QFont.Weight.Medium))
+                        scroll_layout.addWidget(meal_label)
+
+                        for dish_info in dishes:
+                            dish_name = dish_info.get('Dish Name', 'N/A')
+                            link = dish_info.get('YouTube Link', '#')
+                            benefits = dish_info.get('Benefits', 'No benefits information available.')
+
+                            dish_frame = QFrame()
+                            dish_frame_layout = QVBoxLayout(dish_frame)
+                            dish_frame_layout.setContentsMargins(10, 10, 10, 10)
+
+                            dish_header_layout = QHBoxLayout()
+                            dish_name_label = QLabel(dish_name)
+                            dish_name_label.setFont(QFont("Google Sans", 14, QFont.Weight.Medium))
+                            dish_header_layout.addWidget(dish_name_label)
+                            dish_header_layout.addStretch()
+
+                            watch_button = QPushButton("Watch Recipe")
+                            watch_button.setProperty("link", link)
+                            watch_button.clicked.connect(lambda checked, l=link: webbrowser.open(l) if l != '#' else QMessageBox.information(self, "No Link", "Recipe link is not available."))
+                            dish_header_layout.addWidget(watch_button)
+                            dish_frame_layout.addLayout(dish_header_layout)
+
+                            benefits_label = QLabel(benefits)
+                            benefits_label.setWordWrap(True)
+                            benefits_label.setStyleSheet("font-size: 11px; color: #555; margin-top: 5px; padding: 5px; background-color: #e9e9e9; border-radius: 4px;")
+                            benefits_label.hide() # Initially hidden
+
+                            why_button = QPushButton("Why this dish?")
+                            why_button.setStyleSheet("""
+                                background-color: #2196F3;
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                padding: 6px 10px;
+                                font-size: 11px;
+                                margin-top: 5px;
+                            """)
+
+                            # Use a lambda that captures the current benefits_label
+                            why_button.clicked.connect(lambda checked, lbl=benefits_label: lbl.setVisible(not lbl.isVisible()))
+
+                            dish_frame_layout.addWidget(why_button)
+                            dish_frame_layout.addWidget(benefits_label)
+                            scroll_layout.addWidget(dish_frame)
+
+                scroll_area.setWidget(scroll_content)
+                layout.addWidget(scroll_area)
+
+                # Add disclaimer
+                disclaimer = QLabel("<i>Disclaimer: Please consult your dietitian for professional advice. "
+                                   "These recommendations are for informational purposes only and should not be consumed without professional guidance.</i>")
+                disclaimer.setStyleSheet("color: #555; margin-top: 15px; font-size: 10px;")
+                disclaimer.setWordWrap(True)
+                disclaimer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                layout.addWidget(disclaimer)
+
             else:
-                QMessageBox.warning(self, "Input Required", 
-                                  "Please enter your weight and height first.")
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Input", 
-                              "Please enter valid weight and height values.")
+                # Fall back to default implementation with a message
+                msg_label = QLabel("Please complete your profile and health details to receive personalized food recommendations.")
+                msg_label.setWordWrap(True)
+                msg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                layout.addWidget(msg_label)
+
+            dialog.exec()
+
+        except Exception as e:
+            print(f"Error in show_food_recommendations: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to show recommendations: {str(e)}")
 
     def update_calories_burned(self):
         """Calculate and update calories burned based on current session data"""
@@ -945,8 +1210,8 @@ class ModernYogaApp(QMainWindow):
                         age = int(self.calculate_bmi["age"])
                     except:
                         pass
-                if "gender" in self.calculate_bmi and self.calculate_bmi["gener"]:
-                    if self.calculate_bmi["gener"] == "Female":
+                if "gender" in self.calculate_bmi and self.calculate_bmi["gender"]:
+                    if self.calculate_bmi["gender"] == "Female":
                         gender_factor = 0  
  
                 # Calculate BMI
@@ -988,11 +1253,9 @@ class ModernYogaApp(QMainWindow):
                 met_values = {"light": 2.5, "moderate": 4.0, "intense": 6.0}
                 yoga_met = met_values.get(yoga_intensity, 4.0)
                 
-                # IMPROVED: More accurate temperature adjustment
-                # Each degree above normal increases metabolism by ~13%
                 temp_adjustment = 1.0 + max(0, (body_temp - 37.0) * 0.13)
                 
-                # IMPROVED: More accurate BMI adjustment
+                # BMI adjustment
                 if bmi < 18.5:
                     bmi_adjustment = 0.95  # Underweight
                 elif bmi < 25:
@@ -1050,15 +1313,22 @@ class ModernYogaApp(QMainWindow):
                     self.calculate_bmi = json.load(f)
                     
                 # Update weight and height inputs if they exist
-                if "weight" in self.calculate_bmi and self.calculate_bmi["weiht"]:
-                    self.weight_input.setText(self.calculate_bmi["weiht"])
+                if "weight" in self.calculate_bmi and self.calculate_bmi["weight"]:
+                    self.weight_input.setText(self.calculate_bmi["weight"])
                 
-                if "height" in self.calculate_bmi and self.calculate_bmi["heiht"]:
-                    self.height_input.setText(self.calculate_bmi["heiht"])
+                if "height" in self.calculate_bmi and self.calculate_bmi["height"]:
+                    self.height_input.setText(self.calculate_bmi["height"])
+                    
+                # Load health conditions if they exist
+                if "health_conditions" in self.calculate_bmi:
+                    self.health_conditions = self.calculate_bmi["health_conditions"]
+                    
+                # Calculate BMI after loading data
+                self.calculate_bmi_value()
         except Exception as e:
             print(f"Error loading user profile: {e}")
             
-    def calculate_bmi(self):
+    def calculate_bmi_value(self):  
         """Calculate BMI based on weight and height"""
         try:
             if self.weight_input.text() and self.height_input.text():
@@ -1079,7 +1349,64 @@ class ModernYogaApp(QMainWindow):
                     else:
                         self.bmi_card.update_category("Obese", "#F44336")  # Red
                         
-                    # Store BMI for food recommendations
-                    self.bmi = bmi
+                    # Store BMI in the profile data
+                    self.calculate_bmi["bmi"] = bmi
+                    self.save_profile_data()
         except Exception as e:
             print(f"Error calculating BMI: {e}")
+
+    def show_health_details(self):
+        dialog = HealthDetailsDialog(self)
+        if dialog.exec():
+            self.health_conditions = dialog.get_health_conditions()
+            # Save health conditions
+            self.save_health_conditions()
+            
+    def save_profile_data(self):
+        """Save all profile data including BMI and health conditions"""
+        try:
+            # Ensure user_data directory exists
+            os.makedirs("user_data", exist_ok=True)
+            
+            # Update current weight and height
+            if self.weight_input.text():
+                self.calculate_bmi["weight"] = self.weight_input.text()
+            if self.height_input.text():
+                self.calculate_bmi["height"] = self.height_input.text()
+                
+            # Save to file
+            with open("user_data/profile.json", "w") as f:
+                json.dump(self.calculate_bmi, f)
+        except Exception as e:
+            print(f"Error saving profile data: {e}")
+
+    def save_health_conditions(self):
+        if hasattr(self, 'health_conditions'):
+            try:
+                # Ensure user_data directory exists
+                os.makedirs("user_data", exist_ok=True)
+                
+                # Save health conditions to a separate file
+                health_data = {
+                    "health_conditions": self.health_conditions,
+                    "last_updated": time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                with open("user_data/health_details.json", "w") as f:
+                    json.dump(health_data, f, indent=4)
+                    
+                # Also update the profile data
+                self.calculate_bmi['health_conditions'] = self.health_conditions
+                self.save_profile_data()
+                
+            except Exception as e:
+                print(f"Error saving health conditions: {e}")
+                
+    def load_health_conditions(self):
+        try:
+            if os.path.exists("user_data/health_details.json"):
+                with open("user_data/health_details.json", "r") as f:
+                    health_data = json.load(f)
+                    self.health_conditions = health_data.get("health_conditions", {})
+        except Exception as e:
+            print(f"Error loading health conditions: {e}")
