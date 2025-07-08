@@ -1,0 +1,26 @@
+class StyleSheet:
+    @staticmethod
+    def input_field():
+        return """
+        QLineEdit, QTextEdit, QComboBox {
+            background-color: white;
+            border: 2px solid #E0E0E0;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 14px;
+            color: #202124;  /* This is correct - dark text on white background */
+        }
+        QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+            border-color: #1976D2;
+            outline: none;
+        }
+        QComboBox::drop-down {
+            border: none;
+            background-color: transparent;
+        }
+        QComboBox::down-arrow {
+            image: url(icons/arrow_down.png);
+            width: 12px;
+            height: 12px;
+        }
+        """
