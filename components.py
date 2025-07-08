@@ -23,7 +23,7 @@ class MetricCard(QFrame):
             QFrame {
                 background-color: white;
                 border-radius: 10px;
-                border: 1px solid #DADCE0;
+                border: none;
             }
         """)
         
@@ -31,9 +31,9 @@ class MetricCard(QFrame):
         self.setGraphicsEffect(self.create_shadow_effect())
         
         # Create layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(5)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(15, 15, 15, 15)
+        self.layout.setSpacing(5)
         
         # Title
         title_layout = QHBoxLayout()
@@ -49,7 +49,7 @@ class MetricCard(QFrame):
         title_layout.addWidget(title_label)
         title_layout.addStretch()
         
-        layout.addLayout(title_layout)
+        self.layout.addLayout(title_layout)
         
         # Value
         value_layout = QHBoxLayout()
@@ -65,13 +65,22 @@ class MetricCard(QFrame):
             value_layout.addWidget(unit_label)
             
         value_layout.addStretch()
-        layout.addLayout(value_layout)
+        self.layout.addLayout(value_layout)
         
         # Category (initially empty)
         self.category_label = QLabel(self.category)
         self.category_label.setFont(QFont("Arial", 10))
         self.category_label.setStyleSheet(f"color: {self.category_color};")
-        layout.addWidget(self.category_label)
+        self.layout.addWidget(self.category_label)
+        
+        # Container for additional details
+        self.details_layout = QVBoxLayout()
+        self.details_layout.setSpacing(2)
+        self.layout.addLayout(self.details_layout)
+        
+    def add_details(self, widget):
+        """Add additional details widget to the card"""
+        self.details_layout.addWidget(widget)
         
     def update_value(self, value):
         self.value = value
