@@ -22,7 +22,7 @@ from ui.profile_dialog import UserProfileDialog
 from yoga_assistant_1 import YogaAssistant
 from server import esp_data
 from health_details import HealthDetailsDialog
-
+from ui_styles import StyleSheet
 class ModernYogaApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -171,13 +171,13 @@ class ModernYogaApp(QMainWindow):
         
         main_layout.addWidget(header)
         
-        # User inputs
         input_card = QFrame()
         input_card.setObjectName("inputCard")
         input_card.setStyleSheet("""
             #inputCard {
                 background-color: white;
                 border-radius: 12px;
+                border: none;
             }
         """)
         
@@ -195,14 +195,6 @@ class ModernYogaApp(QMainWindow):
         input_title.setFont(QFont("Google Sans", 16, QFont.Weight.Medium))
         input_layout.addWidget(input_title)
         
-        input_fields = QHBoxLayout()
-        input_fields.setSpacing(16)
-        
-        self.weight_input = QLineEdit()
-        self.weight_input.setPlaceholderText("Weight (kg)")
-        self.height_input = QLineEdit()
-        self.height_input.setPlaceholderText("Height (cm)")
-        
         # Add food recommendations button
         self.food_rec_btn = QPushButton("View Food Recommendations")
         self.food_rec_btn.clicked.connect(self.show_food_recommendations)
@@ -212,10 +204,6 @@ class ModernYogaApp(QMainWindow):
         self.food_rec_btn.setStyleSheet("""
             QPushButton {
                 border-radius: 20px}""")
-        
-        input_fields.addWidget(self.weight_input)
-        input_fields.addWidget(self.height_input)
-        input_layout.addLayout(input_fields)
         
         main_layout.addWidget(input_card)
         
@@ -239,8 +227,22 @@ class ModernYogaApp(QMainWindow):
         metrics_grid.setContentsMargins(0, 0, 0, 0)
         metrics_grid.setSpacing(16)
         
-        # BMI Card
+        # BMI Card with height and weight info
         self.bmi_card = MetricCard("BMI", "0", "kg/m²", color="#4285F4")
+        
+        # Create height and weight labels inside the BMI card
+        self.height_label = QLabel("Height: Not set")
+        self.height_label.setFont(QFont("Arial", 10))
+        self.height_label.setStyleSheet("color: #5F6368;")
+        
+        self.weight_label = QLabel("Weight: Not set")
+        self.weight_label.setFont(QFont("Arial", 10))
+        self.weight_label.setStyleSheet("color: #5F6368;")
+        
+        # Add these labels to the BMI card
+        self.bmi_card.add_details(self.height_label)
+        self.bmi_card.add_details(self.weight_label)
+        
         metrics_grid.addWidget(self.bmi_card, 0, 0)
         
         # Heart Rate Card
@@ -269,6 +271,7 @@ class ModernYogaApp(QMainWindow):
                 background-color: white;
                 border-radius: 12px;
                 padding: 12px;
+                border: none;
             }
         """)
 
@@ -322,6 +325,7 @@ class ModernYogaApp(QMainWindow):
                 background-color: white;
                 border-radius: 12px;
                 padding: 12px;
+                border: none;
             }
         """)
         
@@ -562,12 +566,12 @@ class ModernYogaApp(QMainWindow):
         except Exception as e:
             print(f"Error updating data: {e}")
         
-        # Calculate BMI if weight and height are provided
+        # Calculate BMI if weight and height are available in profile data
         try:
             bmi = 0
-            if self.weight_input.text() and self.height_input.text():
-                weight = float(self.weight_input.text())
-                height = float(self.height_input.text()) / 100  # Convert cm to m
+            if hasattr(self, 'calculate_bmi') and "weight" in self.calculate_bmi and "height" in self.calculate_bmi:
+                weight = float(self.calculate_bmi["weight"])
+                height = float(self.calculate_bmi["height"]) / 100  # Convert cm to m
                 bmi = weight / (height * height)
                 self.bmi_card.update_value(f"{bmi:.1f}")
                 
@@ -1080,7 +1084,12 @@ class ModernYogaApp(QMainWindow):
                                 parts[current_key] = value.strip()
                             elif current_key:
                                 parts[current_key] += ' | ' + item.strip() # Handle cases where benefits might have '|'
-                        if 'Dish Name' in parts and 'YouTube Link' in parts and 'Benefits' in parts:
+                        # Check for either Web Link or YouTube Link
+                        link_present = 'Web Link' in parts or 'YouTube Link' in parts
+                        if 'Dish Name' in parts and link_present and 'Benefits' in parts:
+                            # If Web Link is present but YouTube Link is not, copy it to YouTube Link for compatibility
+                            if 'Web Link' in parts and 'YouTube Link' not in parts:
+                                parts['YouTube Link'] = parts['Web Link']
                             dishes_data.append(parts)
 
                 if not dishes_data:
@@ -1143,7 +1152,7 @@ class ModernYogaApp(QMainWindow):
 
                             benefits_label = QLabel(benefits)
                             benefits_label.setWordWrap(True)
-                            benefits_label.setStyleSheet("font-size: 11px; color: #555; margin-top: 5px; padding: 5px; background-color: #e9e9e9; border-radius: 4px;")
+                            benefits_label.setStyleSheet("font-size: 11px; color: #555; margin-top: 5px; padding: 5px; background-color: #e9e9e9; border-radius: 4px; border: none;")
                             benefits_label.hide() # Initially hidden
 
                             why_button = QPushButton("Why this dish?")
@@ -1196,11 +1205,11 @@ class ModernYogaApp(QMainWindow):
             body_temp = max(esp_data.get("body_temp_pre", 37.0), esp_data.get("body_temp_post", 37.0))
             strength_count = esp_data.get("steps", 0)
             
-            # Only calculate if we have valid heart rate data and user input
-            if heart_rate > 40 and self.weight_input.text():
+            # Only calculate if we have valid heart rate data and user profile data
+            if heart_rate > 40 and hasattr(self, 'calculate_bmi') and "weight" in self.calculate_bmi and "height" in self.calculate_bmi:
                 # Get user data
-                weight = float(self.weight_input.text())
-                height = float(self.height_input.text()) if self.height_input.text() else 170
+                weight = float(self.calculate_bmi["weight"])
+                height = float(self.calculate_bmi["height"])
                 
                 age = 19
                 gender_factor = 1
@@ -1295,15 +1304,8 @@ class ModernYogaApp(QMainWindow):
         """Handle updated profile data"""
         self.calculate_bmi = profile_data
         
-        # Update weight and height inputs if they exist
-        if "weight" in profile_data and profile_data["weight"]:
-            self.weight_input.setText(profile_data["weight"])
-        
-        if "height" in profile_data and profile_data["height"]:
-            self.height_input.setText(profile_data["height"])
-            
         # Calculate BMI if both weight and height are available
-        self.calculate_bmi()
+        self.calculate_bmi_value()
         
     def load_calculate_bmi(self):
         """Load user profile from file if it exists"""
@@ -1311,13 +1313,6 @@ class ModernYogaApp(QMainWindow):
             if os.path.exists("user_data/profile.json"):
                 with open("user_data/profile.json", "r") as f:
                     self.calculate_bmi = json.load(f)
-                    
-                # Update weight and height inputs if they exist
-                if "weight" in self.calculate_bmi and self.calculate_bmi["weight"]:
-                    self.weight_input.setText(self.calculate_bmi["weight"])
-                
-                if "height" in self.calculate_bmi and self.calculate_bmi["height"]:
-                    self.height_input.setText(self.calculate_bmi["height"])
                     
                 # Load health conditions if they exist
                 if "health_conditions" in self.calculate_bmi:
@@ -1331,13 +1326,17 @@ class ModernYogaApp(QMainWindow):
     def calculate_bmi_value(self):  
         """Calculate BMI based on weight and height"""
         try:
-            if self.weight_input.text() and self.height_input.text():
-                weight = float(self.weight_input.text())
-                height = float(self.height_input.text()) / 100  # Convert cm to m
+            if hasattr(self, 'calculate_bmi') and "weight" in self.calculate_bmi and "height" in self.calculate_bmi:
+                weight = float(self.calculate_bmi["weight"])
+                height = float(self.calculate_bmi["height"]) / 100  # Convert cm to m
                 
                 if weight > 0 and height > 0:
                     bmi = weight / (height * height)
                     self.bmi_card.update_value(f"{bmi:.1f}")
+                    
+                    # Update height and weight labels
+                    self.height_label.setText(f"Height: {self.calculate_bmi['height']} cm")
+                    self.weight_label.setText(f"Weight: {self.calculate_bmi['weight']} kg")
                     
                     # Update BMI category
                     if bmi < 18.5:
@@ -1349,7 +1348,7 @@ class ModernYogaApp(QMainWindow):
                     else:
                         self.bmi_card.update_category("Obese", "#F44336")  # Red
                         
-                    # Store BMI in the profile data
+                    # Store BMI for food recommendations
                     self.calculate_bmi["bmi"] = bmi
                     self.save_profile_data()
         except Exception as e:
@@ -1368,12 +1367,6 @@ class ModernYogaApp(QMainWindow):
             # Ensure user_data directory exists
             os.makedirs("user_data", exist_ok=True)
             
-            # Update current weight and height
-            if self.weight_input.text():
-                self.calculate_bmi["weight"] = self.weight_input.text()
-            if self.height_input.text():
-                self.calculate_bmi["height"] = self.height_input.text()
-                
             # Save to file
             with open("user_data/profile.json", "w") as f:
                 json.dump(self.calculate_bmi, f)
